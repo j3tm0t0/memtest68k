@@ -108,10 +108,13 @@ static void draw_errors(void)
                      (unsigned long)e->address, (unsigned long)e->expected,
                      (unsigned long)e->actual, (unsigned long)(e->expected ^ e->actual));
             field(0, 17+(int)i, 95, 2+8, buf);
-        } else field(0, 17+(int)i, 95, 3, "");
+        } else {
+            /* Give each row its final content once; clearing the message row
+             * before rewriting it defeats field()'s unchanged-text cache. */
+            field(0, 17+(int)i, 95, 3, !a.history_count && i == 1 ?
+                  "  No errors detected. Testing continues until you press ESC." : "");
+        }
     }
-    if (!a.history_count)
-        field(0, 18, 95, 3, "  No errors detected. Testing continues until you press ESC.");
 }
 
 static void draw_status(const char *message)

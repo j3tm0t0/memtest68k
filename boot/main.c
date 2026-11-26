@@ -123,9 +123,13 @@ static void errors(void)
                    (unsigned)a.history_pass[n], e->test+1, (unsigned)e->address,
                    (unsigned)e->expected, (unsigned)e->actual, (unsigned)(e->expected ^ e->actual));
             field(0, 17+i, 95, 10, text);
-        } else field(0, 17+i, 95, 3, "");
+        } else {
+            /* Give each row its final content once; clearing the message row
+             * before rewriting it defeats field()'s unchanged-text cache. */
+            field(0, 17+i, 95, 3, !a.used && i == 1 ?
+                  "  No errors detected. Testing continues until you press ESC." : "");
+        }
     }
-    if (!a.used) field(0, 18, 95, 3, "  No errors detected. Testing continues until you press ESC.");
 }
 
 static unsigned tested_bytes(void)
