@@ -1,0 +1,90 @@
+name: Build and headless XEiJ
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install pinned elf2x68k toolchain
+        shell: bash
+        run: |
+          curl -fL --retry 3 https://github.com/yunkya2/elf2x68k/releases/download/20261024/elf2x68k-Linux-20261024.tar.bz2 -o "$RUNNER_TEMP/elf2x68k.tar.bz2"
+          echo "8104310f677c81f39b7b61a6fc6e1a936b76fce1bba4f50df4bd6d8fef03f3ef  $RUNNER_TEMP/elf2x68k.tar.bz2" | sha256sum -c -
+          tar -xjf "$RUNNER_TEMP/elf2x68k.tar.bz2" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/m68k-xelf/bin" >> "$GITHUB_PATH"
+      - name: Build all images and run sanitizer and image tests
+        run: make -j2 check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memtest68-build
+          if-no-files-found: error
+          path: |
+            build/memtest68.x
+            build/memtest68-fd.xdf
+            build/memtest68-fd.json
+            build/memtest68-hd.hds
+            build/memtest68-hd.json
+            build/boot/standalone.elf
+            build/boot/hds_standalone.elf
+  xeij:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {medium: fd, cpu: '68000', fault: false}
+          - {medium: hds, cpu: '68000', fault: false}
+          - {medium: fd, cpu: '68030', fault: false}
+          - {medium: hds, cpu: '68030', fault: false}
+          - {medium: fd, cpu: '68000', fault: true}
+          - {medium: hds, cpu: '68030', fault: true}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: memtest68-build
+          path: build
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '26'
+      - name: Install virtual display
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth fonts-dejavu-core
+      - name: Download pinned XEiJ
+        shell: bash
+        run: |
+          curl -fL --retry 3 https://stdkmd.net/xeij/XEiJ_0261008.zip -o "$RUNNER_TEMP/xeij.zip"
+          echo "894724745202289f26f473dbca71940ec4a97a7be583ead826fa8f7560a79542  $RUNNER_TEMP/xeij.zip" | sha256sum -c -
+          unzip "$RUNNER_TEMP/xeij.zip" XEiJ.jar jSerialComm-2.11.4.jar 'data/*' -d "$RUNNER_TEMP/xeij"
+      - name: Boot, complete all eight tests and verify low-RAM restoration
+        shell: bash
+        env:
+          MEDIUM: ${{ matrix.medium }}
+          CPU: ${{ matrix.cpu }}
+          FAULT: ${{ matrix.fault }}
+        run: |
+          extra=()
+          if [ "$FAULT" = true ]; then extra+=(--fault); fi
+          xvfb-run -a -s '-screen 0 1280x1024x24' python3 tools/test_xeij.py \
+            --xeij "$RUNNER_TEMP/xeij/XEiJ.jar" --medium "$MEDIUM" --cpu "$CPU" "${extra[@]}"
+      - name: Save emulator evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xeij-${{ matrix.medium }}-${{ matrix.cpu }}-fault-${{ matrix.fault }}
+          if-no-files-found: warn
+          path: |
+            build/xeij/**/result.json
+            build/xeij/**/screen.png
+            build/xeij/**/emulator.log

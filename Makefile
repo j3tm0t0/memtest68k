@@ -19,10 +19,10 @@ build:
 build/boot:
 	mkdir -p build/boot
 
-build/boot/%.o: boot/%.c include/memtest.h boot/format.h | build/boot
+build/boot/%.o: boot/%.c include/memtest.h boot/format.h boot/probe.h | build/boot
 	$(CC68) $(CPPFLAGS) $(BOOTFLAGS) -c -o $@ $<
 
-build/boot/%.o: boot/%.S | build/boot
+build/boot/%.o: boot/%.S boot/probe.h | build/boot
 	$(CC68) -m68000 -c -o $@ $<
 
 build/boot/memtest.o: src/memtest.c include/memtest.h | build/boot
@@ -51,7 +51,7 @@ build/boot/hds_ipl.elf: build/boot/hds_ipl.o
 build/boot/hds_ipl.bin: build/boot/hds_ipl.elf
 	$(CROSS)objcopy -O binary $< $@
 
-build/boot/hds_main.o: boot/main.c boot/format.h include/memtest.h | build/boot
+build/boot/hds_main.o: boot/main.c boot/format.h boot/probe.h include/memtest.h | build/boot
 	$(CC68) $(CPPFLAGS) $(BOOTFLAGS) -DBOOT_HDS -c -o $@ $<
 
 build/boot/hds_standalone.elf: $(filter-out build/boot/main.o,$(BOOTOBJ)) build/boot/hds_main.o build/boot/hds_restart.o boot/standalone.ld

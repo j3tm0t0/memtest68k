@@ -106,4 +106,4 @@ run68 build/memtest68.x --plain --passes 1 --tests 1
 
 ## FD 単独起動版
 
-`boot/` に自作の FD ローダと OS に依存しないフロントエンドを実装しています。通常領域は共通エンジン `src/memtest.c` で検査し、本体が使う低位 56 KiB は VRAM から実行する専用の 6 パターンで検査します。先頭 8 KiB の ROM IOCS 用領域は残します。詳しくは [FD 起動版](fd-boot.md) を参照してください。
+`boot/` に自作の FD ローダと OS に依存しないフロントエンドを実装しています。通常領域は共通エンジン `src/memtest.c` で検査し、低位 RAM は VRAM から実行する専用の 6 パターンで検査します。v0.3 は 68000 で先頭 1 KiB の CPU ベクタ表を除外し、68030 では VBR を VRAM に移して通常 RAM 全域を検査します。詳しくは [FD 起動版](fd-boot.md) を参照してください。

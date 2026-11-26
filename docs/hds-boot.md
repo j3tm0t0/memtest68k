@@ -1,4 +1,4 @@
-# HDS 起動版 Memtest68 HDS v0.2
+# HDS 起動版 Memtest68 HDS v0.3
 
 `build/memtest68-hd.hds` は、SCSI HDD から Human68k を使わずに起動する **16 MiB の HDS イメージ**です。FD 版と同じメモリ検査本体を使用します。
 
@@ -29,7 +29,9 @@ SCSI ID 3 に接続する場合は、`-sc3=... -boot=sc3` を指定します。�
 
 ## 検査と操作
 
-初期状態では全 8 項目を繰り返し実行します。`c` で項目と周回数を設定し、`ESC` → `y` で起動した SCSI ID の HDS から診断本体を再ロードします。これは診断プログラムの再スタートで、ハードウェア全体のリセットではありません。RAM 範囲、VRAM へ移して行う低位 RAM の検査、CPU・キャッシュ制御は [FD 版](fd-boot.md) と同じです。先頭 8 KiB の ROM IOCS 用領域は検査しません。
+初期状態では全 8 項目を繰り返し実行します。`c` で項目と周回数を設定し、`ESC` → `y` で起動した SCSI ID の HDS から診断本体を再ロードします。これは診断プログラムの再スタートで、ハードウェア全体のリセットではありません。RAM 範囲、VRAM へ移して行う低位 RAM の検査、CPU・キャッシュ制御は [FD 版](fd-boot.md) と同じです。68000 は先頭 1 KiB の CPU ベクタ表を除外し、68030 は VBR を VRAM に移して通常 RAM 全域を検査します。
+
+以下の画面は先頭 8 KiB を除外する v0.2 の記録です。
 
 ![HDS 起動で全 8 項目を 1 周完了した実画面](screenshots/hds-completed.png)
 
@@ -46,4 +48,4 @@ SCSI ROM がディスク IPL を `$2000` へ読み込み、IPL は ROM IOCS `_SC
 
 ヘッダ構成は [XEiJ](https://stdkmd.net/xeij/) 0.26.10.08 の `SPC.java` / `SCMedia.java`、SCSI 起動時の ID と ROM IOCS の使い方は [PiPAPo の X68000 移植記録](https://github.com/toyoshim-i/PiPAPo/blob/main/docs/proposals/x68k_port.md) を参考にしています。既存の起動セクタや OS バイナリは転用していません。
 
-`make check` で共通エンジン、FD / HDS の構成・サイズ・チェックサム・境界、画面フォーマッタを検証します。エミュレータでの結果は [検証記録](verification.md) を参照してください。実機・実 HDD での検証は未実施です。
+`make check` で共通エンジン、FD / HDS の構成・サイズ・チェックサム・境界、画面フォーマッタを検証します。エミュレータでの結果は [検証記録](verification.md) を参照してください。v0.2 は XVI / 68000 / 16 MHz / 12 MB で 1 周・エラーなしの利用者報告があります。v0.3 の検査範囲拡張は実機未確認です。

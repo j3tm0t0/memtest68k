@@ -1,3 +1,24 @@
+# headless XEiJ の自動検証
+
+Java 26 以降の JDK、XEiJ 0.26.10.08、付属の `data/` と `jSerialComm-2.11.4.jar`（XEiJ.jar と同じディレクトリ）、Python 3 と `make check` 済みの成果物が必要です。Linux では Xvfb / xauth を使います。XEiJ は AWT を使うため `-Djava.awt.headless=true` では実行できません。
+
+```sh
+xvfb-run -a -s '-screen 0 1280x1024x24' python3 tools/test_xeij.py \
+  --xeij /path/to/XEiJ.jar --medium fd --cpu 68000
+xvfb-run -a -s '-screen 0 1280x1024x24' python3 tools/test_xeij.py \
+  --xeij /path/to/XEiJ.jar --medium hds --cpu 68030 --fault
+```
+
+`--medium fd|hds`、`--cpu 68000|68030` を組み合わせて実行します。macOS の画面あり環境では `xvfb-run ...` を省略できます。`--java-home` で JDK の場所を指定できます。
+
+各ケースは専用のディスクコピーと設定を使用します。検証のためクロックを 1000 MHz に設定し、68000 は 1 MiB、68030 は 4 MiB を検査します。実時間や表示帯域は実機の性能測定には使えません。
+
+ホスト側 Java エージェントは、VRAM 上の最初の照合命令へ一度だけブレークポイントを置き、実際の検査開始アドレス・VBR・書込済みパターンを確認します。`--fault` はその時点で 68000 の `$1000`、68030 の `$100` を 1 ビットだけ反転します。どちらも v0.3 で検査対象に追加した領域です。通常の `c` → `l` → Enter 操作で周回上限を 1 に設定します。
+
+ターゲットの読み取り専用観測情報 `boot_report` を使い、全 8 項目の 1 周完了、検査容量、低位検査回数、エラー数、64 KiB の復元照合結果、VBR の切替・復元を検証します。故障注入は 1 件の検出とそのアドレスも照合します。配布するブートイメージに故障注入や検証専用の操作機能はありません。
+
+`build/xeij/<ケース>/` に `result.json`、XEiJ の実パネル `screen.png`、`emulator.log` を保存します。タイムアウト、異常終了、観測値の不一致は非ゼロ終了します。GitHub Actions ではこの検証を 6 ケース実行し、失敗時も証拠を保存します。
+
 # XEiJ 画面確認用ブリッジ
 
 JDK と XEiJ が必要です。プロジェクトのルートで実行します。

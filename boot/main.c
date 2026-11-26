@@ -1,5 +1,6 @@
 #include "memtest.h"
 #include "format.h"
+#include "probe.h"
 #include <x68k/iocs.h>
 
 #define HIGH_START UINT32_C(0x10000)
@@ -39,6 +40,15 @@ static struct {
     char text[32][96];
     unsigned char color[32][96];
 } a;
+
+/* Read-only observation point for emulator CI; no test controls live here.
+ * Fixed-width words let the host read the target's big-endian state. */
+volatile struct {
+    uint32_t magic, version, cpu, ram, low_start, low_bytes, tested_bytes;
+    uint32_t passes, errors, low_runs, low_errors, probe_status;
+    uint32_t old_vbr, active_vbr, restored_vbr, restore_errors;
+    uint32_t phase, completed_mask, first_address;
+} boot_report;
 
 static const char *test_name(unsigned test)
 {
@@ -121,7 +131,7 @@ static void errors(void)
 static unsigned tested_bytes(void)
 {
     unsigned bytes = a.active & MT_ALL_TESTS ? a.ram-HIGH_START : 0;
-    return bytes + (a.active & LOW_MASK ? 56u*1024u : 0);
+    return bytes + (a.active & LOW_MASK ? probe_bytes(a.cpu) : 0);
 }
 
 static void status(const char *message)
@@ -134,7 +144,7 @@ static void status(const char *message)
     boot_format(text, sizeof(text), "Test #%u [%s]", a.current.test+1, test_name(a.current.test));
     field(37, 2, 58, 3, text);
     boot_format(text, sizeof(text), "Testing: %08x  (%uK)", (unsigned)a.current.address,
-           a.current.test == LOW_TEST ? 56u : (unsigned)(a.ram-HIGH_START)/1024u);
+           a.current.test == LOW_TEST ? (unsigned)probe_bytes(a.cpu)/1024u : (unsigned)(a.ram-HIGH_START)/1024u);
     field(37, 3, 58, 3, text);
     boot_format(text, sizeof(text), "Pattern: %08x  Step %u/%u", (unsigned)a.current.pattern,
            a.current.stage+1, a.current.stages);
@@ -147,8 +157,8 @@ static void status(const char *message)
            (unsigned)(a.ram-tested_bytes())/1024u, a.cache, a.count,
            (unsigned)a.passes, (unsigned)a.ctx.errors);
     field(0, 12, 95, 3, text);
-    boot_format(text, sizeof(text), "Low RAM: $00002000-$0000FFFF, 56K, six patterns; cumulative errors: %u",
-           (unsigned)a.low_errors);
+    boot_format(text, sizeof(text), "Low RAM: $%08x-$0000FFFF, %uK, six patterns; cumulative errors: %u",
+           (unsigned)probe_start(a.cpu), (unsigned)probe_bytes(a.cpu)/1024u, (unsigned)a.low_errors);
     field(0, 8, 95, 3, text);
     field(0, 30, 95, a.ctx.errors ? 10 : 3, message);
     errors();
@@ -159,7 +169,7 @@ static void screen(void)
     unsigned i;
     char text[112];
     for (i = 0; i < 32; ++i) field(0, i, 95, 3, "");
-    field(0, 0, 35, 9, "        Memtest68 " BOOT_MEDIUM " v0.2");
+    field(0, 0, 35, 9, "        Memtest68 " BOOT_MEDIUM " v0.3");
     boot_format(text, sizeof(text), "Motorola 680%02u / X680x0", a.cpu*10u);
     field(0, 1, 35, 3, text);
     boot_format(text, sizeof(text), "Main RAM : %7uK (SRAM)", (unsigned)a.ram/1024u);
@@ -170,7 +180,9 @@ static void screen(void)
     field(0, 5, 35, 3, text);
     for (i = 0; i < 7; ++i) field(35, i, 1, 3, "|");
     field(37, 6, 58, 3, "----------------------------------------------------------");
-    field(0, 7, 95, 3, BOOT_SOURCE " boot / NO OS. Reserved: first 8K (ROM IOCS vectors/work). Low RAM runs in VRAM.");
+    field(0, 7, 95, 3, a.cpu == 3 ?
+          BOOT_SOURCE " boot / NO OS. All configured RAM tested; low RAM and VBR relocated to VRAM." :
+          BOOT_SOURCE " boot / NO OS. Reserved: first 1K (CPU vectors). Low RAM runs in VRAM.");
     field(0, 10, 95, 3, "  WallTime   Tested    Excluded  MemMap     D-Cache Test    Pass     Errors");
     rule(11); rule(13);
     field(0, 15, 95, 3, " Pass  Test   Failing address  Good       Bad        Err-Bits");
@@ -251,21 +263,35 @@ static uint32_t saturated_add(uint32_t x, uint32_t y)
     return UINT32_MAX-x < y ? UINT32_MAX : x+y;
 }
 
+static void fatal(const char *message);
+
 static void low_ram(void)
 {
-    volatile unsigned char *dest = (volatile unsigned char *)0xe40000;
+    volatile unsigned char *dest = (volatile unsigned char *)LP_CODE;
     const unsigned char *source = low_probe_image_start;
     uint32_t found;
-    mt_progress p = {LOW_TEST, 0, 1, 0, 0, 56u*1024u/4u, 0x2000,
+    mt_progress p = {LOW_TEST, 0, 1, 0, 0, probe_bytes(a.cpu)/4u, probe_start(a.cpu),
                      "VRAM probe: 0/1, 55/AA, address/inverse"};
     while (source < low_probe_image_end) *dest++ = *source++;
     if (progress(0, &p)) return;
     if (a.cpu == 3) _iocs_cache_md(-1);
-    found = ((uint32_t (*)(void))0xe40000)();
+    boot_report.phase = 2;
+    found = ((uint32_t (*)(unsigned))LP_CODE)(a.cpu);
+    ++boot_report.low_runs;
+    boot_report.low_errors = saturated_add(boot_report.low_errors, found);
+    boot_report.probe_status = *(volatile uint32_t *)LP_STATUS;
+    boot_report.old_vbr = *(volatile uint32_t *)LP_OLD_VBR;
+    boot_report.active_vbr = *(volatile uint32_t *)LP_ACTIVE_VBR;
+    boot_report.restored_vbr = *(volatile uint32_t *)LP_RESTORED_VBR;
+    boot_report.restore_errors = *(volatile uint32_t *)LP_RESTORE_ERRORS;
+    if (found) boot_report.first_address = *(volatile uint32_t *)LP_FIRST_ADDRESS;
+    boot_report.phase = 1;
+    if (*(volatile uint32_t *)LP_STATUS != LP_OK)
+        fatal("Low-RAM probe aborted: exception, active DMA or restore failure. No pass recorded.");
     a.low_errors = saturated_add(a.low_errors, found);
     a.ctx.errors = saturated_add(a.ctx.errors, found);
     if (found) {
-        volatile uint32_t *info = (volatile uint32_t *)0xe5ff0c;
+        volatile uint32_t *info = (volatile uint32_t *)LP_FIRST_ADDRESS;
         mt_error e = {(uintptr_t)info[0], info[1], info[2], LOW_TEST};
         error(0, &e); /* First low-RAM mismatch is retained; all are counted. */
     }
@@ -294,6 +320,7 @@ static void reboot(void)
 
 static void fatal(const char *message)
 {
+    boot_report.phase = 4;
     _iocs_b_color(3);
     _iocs_b_print(message);
     _iocs_b_print("\r\nPress a key to " BOOT_EXIT_LOWER ".\r\n");
@@ -345,25 +372,38 @@ void boot_main(void)
     region.base = (volatile uint32_t *)HIGH_START;
     region.words = (a.ram-HIGH_START)/4;
     screen();
+    boot_report.version = 1;
+    boot_report.cpu = a.cpu;
+    boot_report.ram = a.ram;
+    boot_report.low_start = probe_start(a.cpu);
+    boot_report.low_bytes = probe_bytes(a.cpu);
+    boot_report.tested_bytes = tested_bytes();
+    boot_report.phase = 1;
+    boot_report.magic = UINT32_C(0x4d543638);
     for (;;) {
         a.active = a.mask;
         a.count = count_bits(a.active);
         a.index = 0;
+        boot_report.completed_mask = 0;
+        boot_report.phase = 1;
         if (a.active & LOW_MASK) {
             low_ram();
-            if (!a.quit) ++a.index;
+            if (!a.quit) { ++a.index; boot_report.completed_mask |= LOW_MASK; }
         }
         for (i = 0; i < MT_TEST_COUNT && !a.quit; ++i) {
             if (!(a.active & (1u << i))) continue;
             if (mt_run(&a.ctx, &region, 1, i, UINT32_C(0x68c0ffee) ^ a.passes)) a.quit = 1;
-            if (!a.quit) ++a.index;
+            if (!a.quit) { ++a.index; boot_report.completed_mask |= 1u << i; }
         }
         if (a.quit) { reboot(); continue; }
         if (a.passes != UINT32_MAX) ++a.passes;
+        boot_report.errors = a.ctx.errors;
+        boot_report.passes = a.passes;
         if (a.limit && a.passes >= a.limit) {
             a.index = a.count-1;
             status(a.ctx.errors ? "***** Pass complete - ERRORS DETECTED. ESC " BOOT_EXIT_VERB ", ENTER runs one more pass. *****" :
                                   "***** Pass complete, no errors. ESC " BOOT_EXIT_VERB ", ENTER runs one more pass. *****");
+            boot_report.phase = 3;
             for (;;) {
                 int k = _iocs_b_keyinp() & 255;
                 if (k == 27) reboot();
