@@ -19,7 +19,7 @@ public class XEiJHeadless {
     static final String[] FIELDS = {
         "magic", "version", "cpu", "ram", "low_start", "low_bytes", "tested_bytes",
         "passes", "errors", "low_runs", "low_errors", "probe_status", "old_vbr",
-        "active_vbr", "restored_vbr", "restore_errors", "phase", "completed_mask", "first_address"
+        "active_vbr", "restored_vbr", "restore_errors", "phase", "completed_mask", "first_address", "walking_full", "walking_stages"
     };
     static int word(int address) {
         byte[] m = MainMemory.mmrM8;
@@ -62,6 +62,8 @@ public class XEiJHeadless {
                 int verify = Integer.decode(p.getProperty("verify"));
                 int cpu = Integer.parseInt(p.getProperty("cpu"));
                 int ram = Integer.parseInt(p.getProperty("ram"));
+                boolean fullWalking = Boolean.parseBoolean(p.getProperty("full_walking", "false"));
+                int passes = fullWalking ? 2 : 1;
                 boolean fault = Boolean.parseBoolean(p.getProperty("fault"));
                 int target = cpu == 3 ? 0x100 : 0x1000;
                 long deadline = System.nanoTime() + 600_000_000_000L;
@@ -92,17 +94,19 @@ public class XEiJHeadless {
                     }
                     if (word(report) == 0x4d543638) {
                         if (!configured && observed) {
-                            key("c"); key("l"); key("return");
+                            key("c"); key("l");
+                            if (fullWalking) { key("w"); key("l"); }
+                            key("return");
                             configured = true;
-                            System.out.println("headless: selected one pass through configuration keys");
+                            System.out.println("headless: selected pass limit through configuration keys");
                         }
                         require(word(report+16*4) != 4, "Target aborted the probe");
                         if (word(report+16*4) == 3) {
                             require(configured && observed, "Pass completed without observation");
                             int[] expected = {0x4d543638, 1, cpu, ram, cpu == 3 ? 0 : 1024,
                                 cpu == 3 ? 65536 : 64512, ram - (cpu == 3 ? 0 : 1024),
-                                1, fault ? 1 : 0, 1, fault ? 1 : 0, 0, 0,
-                                cpu == 3 ? 0xe41000 : 0, 0, 0, 3, 255, fault ? target : 0};
+                                passes, fault ? 1 : 0, passes, fault ? 1 : 0, 0, 0,
+                                cpu == 3 ? 0xe41000 : 0, 0, 0, 3, 255, fault ? target : 0, fullWalking ? 1 : 0, fullWalking ? 128 : 4};
                             for (int i = 0; i < expected.length; i++)
                                 require(word(report+i*4) == expected[i], FIELDS[i] + ": got " +
                                     Integer.toUnsignedString(word(report+i*4)) + ", expected " + expected[i]);

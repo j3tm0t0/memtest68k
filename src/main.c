@@ -6,7 +6,7 @@
 #include <x68k/dos.h>
 #include <x68k/iocs.h>
 
-#define VERSION "0.1"
+#define VERSION "0.4"
 #define RAM_END UINT32_C(0x00c00000)
 #define HISTORY 12
 
@@ -18,7 +18,7 @@ typedef struct {
     unsigned mask, pass_mask, test_index, tests_in_pass;
     uint32_t passes, pass_limit, start_ticks, last_draw;
     unsigned long limit_kib, bytes, installed;
-    int plain, quit, frozen, cpu, old_cache;
+    int plain, quit, frozen, cpu, old_cache, full_walking, pass_full_walking;
     const char *cache;
     mt_region regions[MT_MAX_REGIONS];
     size_t count;
@@ -68,6 +68,11 @@ static void rule(int y)
 {
     field(0, y, 95, 3,
           "-----------------------------------------------------------------------------------------------");
+}
+
+static const char *test_name(unsigned test)
+{
+    return test == 3 && a.pass_full_walking ? "Walking ones / zeros, full 32 bit" : mt_test_names[test];
 }
 
 static unsigned bits(unsigned n)
@@ -127,7 +132,7 @@ static void draw_status(const char *message)
     bar(0, "Pass", pp);
     bar(1, "Test", tp);
     snprintf(buf, sizeof(buf), "Test #%u [%s]", a.current.test+1,
-             mt_test_names[a.current.test]);
+             test_name(a.current.test));
     field(37, 2, 58, 3, buf);
     snprintf(buf, sizeof(buf), "Testing: %08lX  (%luK in %u blocks)",
              (unsigned long)a.current.address, a.bytes/1024, (unsigned)a.count);
@@ -219,10 +224,13 @@ static void configure(void)
             field(0, 17+(int)i, 95, 3, buf);
         }
         field(0, 25, 95, 3, "  1-7: toggle test    a: select all    ENTER: resume    ESC: exit to DOS");
-        field(0, 26, 95, 3, "  At least one test must be selected. Error counters are preserved.");
+        field(0, 26, 95, 3, a.full_walking ?
+              "  (w) Walking: full 32-bit, 128 sweeps (next pass)" :
+              "  (w) Walking: distributed, 4 sweeps (next pass)");
         do { k = _iocs_b_keyinp() & 255; } while (!k);
         if (k >= '1' && k <= '7') a.mask ^= 1u << (k-'1');
         if (k == 'a' || k == 'A') a.mask = MT_ALL_TESTS;
+        if (k == 'w' || k == 'W') a.full_walking = !a.full_walking;
         if (k == 27) { a.quit = 1; break; }
     } while (k != 13 || !a.mask);
     a.frozen = 0;
@@ -317,6 +325,7 @@ static void usage(void)
          "  --passes N   Stop after N complete passes (0 = forever).\n"
          "  --size KiB   Limit tested memory (1..12288 KiB).\n"
          "  --tests LIST Select test numbers, e.g. 126.\n"
+         "  --full-walking  Original 32-bit walking test (128 sweeps).\n"
          "  --plain      Text log; --passes is required and must be nonzero.\n"
          "  --help       Show help.\n"
          "Screen: ESC exit, c configuration, SPACE scroll lock, ENTER unlock, p pause.\n"
@@ -348,6 +357,7 @@ int main(int argc, char **argv)
     a.cache = "none";
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) { usage(); return 0; }
+        if (!strcmp(argv[i], "--full-walking")) { a.full_walking = 1; continue; }
         if (!strcmp(argv[i], "--plain")) { a.plain = 1; continue; }
         if (i+1 == argc) { usage(); return 2; }
         if (!strcmp(argv[i], "--passes")) {
@@ -402,6 +412,7 @@ int main(int argc, char **argv)
     a.current.operation = "Preparing first pass";
     a.current.stages = 1;
     a.pass_mask = a.mask;
+    a.pass_full_walking = a.full_walking;
     if (!a.plain) ui_open();
     else {
         printf("Testing %lu KiB in %u DOS-allocated blocks; D-cache=%s\n",
@@ -412,15 +423,17 @@ int main(int argc, char **argv)
     }
     while (!a.quit && (!a.pass_limit || a.passes < a.pass_limit)) {
         a.pass_mask = a.mask;
+        a.pass_full_walking = a.full_walking;
         a.tests_in_pass = bits(a.pass_mask);
         a.test_index = 0;
         for (test = 0; test < MT_TEST_COUNT; ++test) {
             int status;
             if (!(a.pass_mask & (1u << test))) continue;
             if (a.plain) printf("Pass %lu Test %u: %s\n", (unsigned long)a.passes+1,
-                                test+1, mt_test_names[test]);
-            status = mt_run(&a.ctx, a.regions, a.count, test,
-                            UINT32_C(0x68c0ffee) ^ a.passes);
+                                test+1, test_name(test));
+            status = mt_run_ex(&a.ctx, a.regions, a.count, test,
+                            UINT32_C(0x68c0ffee) + a.passes,
+                            a.pass_full_walking ? MT_WALK_FULL : 0);
             if (status) { a.quit = 1; result = status < 0 ? 2 : 130; break; }
             ++a.test_index;
         }

@@ -1,0 +1,29 @@
+{
+  "bytes": 65536,
+  "clock_mhz": 16,
+  "centiseconds": [
+    19,
+    33,
+    34,
+    24,
+    78,
+    27,
+    15,
+    20,
+    33,
+    33,
+    536,
+    77,
+    27,
+    16
+  ],
+  "modes": [
+    "distributed",
+    "full"
+  ],
+  "seed": "68c0ffee",
+  "progress_callbacks": false,
+  "elf_sha256": "e1de5c749c0faf02efabbc24cddb056f0a6a0a5677a389836175fe907b5f6303",
+  "image_sha256": "3ff2d08b2aae8a909d009f1da8bd6ee75c4027dcfc74f47fe31fae5ff667e95d",
+  "xeij_sha256": "90639578d90e8de2639f01657d5cb48adcff58e142193662cbae6a313af27221"
+}

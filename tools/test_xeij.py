@@ -41,6 +41,8 @@ def main():
     parser.add_argument('--xeij', required=True, type=Path)
     parser.add_argument('--medium', required=True, choices=['fd', 'hds'])
     parser.add_argument('--cpu', required=True, choices=['68000', '68030'])
+    parser.add_argument('--memory', type=int, choices=range(1, 13))
+    parser.add_argument('--full-walking', action='store_true')
     parser.add_argument('--fault', action='store_true')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--java-home', type=Path)
@@ -50,8 +52,10 @@ def main():
     if not (args.xeij.parent/'data'/'IPLROM.DAT').is_file():
         parser.error('Extract the bundled data/ directory beside XEiJ.jar')
     cpu = 3 if args.cpu == '68030' else 0
-    ram = 4 if cpu else 1
+    ram = args.memory or (4 if cpu else 1)
     case = f'{args.medium}-{args.cpu}' + ('-fault' if args.fault else '')
+    if args.memory: case += f'-{ram}M'
+    if args.full_walking: case += '-full-walking'
     output = (args.output or ROOT/'build'/'xeij'/case).resolve()
     output.mkdir(parents=True, exist_ok=True)
     # Each test has its own settings, disks, agent classes and logs.
@@ -76,7 +80,8 @@ def main():
     properties = output/'case.properties'
     properties.write_text(f'output={output.as_posix()}\nreport={syms["boot_report"]}\n'
                           f'verify={0xe40000 + syms["verify"] - syms["low_probe_image_start"]}\n'
-                          f'cpu={cpu}\nram={ram*1024*1024}\nfault={str(args.fault).lower()}\n')
+                          f'cpu={cpu}\nram={ram*1024*1024}\nfault={str(args.fault).lower()}\n'
+                          f'full_walking={str(args.full_walking).lower()}\n')
     drive = 'sc3' if args.medium == 'hds' else 'fd0'
     command = [java_tool('java'), '-Xmx512m', f'-javaagent:{agent}={properties}',
                f'-Djava.io.tmpdir={output}', '-jar', str(args.xeij.resolve()),

@@ -64,7 +64,7 @@ static void guards(void)
 
 int main(void)
 {
-    static const unsigned stages[] = {4,8,8,128,8,6,4};
+    static const unsigned stages[] = {4,8,8,4,8,6,4};
     mt_region regions[] = {{buffer.data,8193}, {second,17}};
     mt_context ctx = {observe,report,NULL,0};
     unsigned test;
@@ -88,6 +88,20 @@ int main(void)
         reset(); ctx.errors = 0; cancel = 1;
         assert(mt_run(&ctx, regions, 2, test, 0x68) == 1);
         assert(progress_calls == 3);
+        guards();
+    }
+    reset(); ctx.errors = 0;
+    assert(mt_run_ex(&ctx, regions, 2, 3, 0x68, MT_WALK_FULL) == 0);
+    assert(final_stage+1 == 128 && ctx.errors == 0);
+    guards();
+
+    /* Every location sees all 32 walking bits over consecutive seeds. */
+    for (test = 0; test < 32; ++test) {
+        size_t i;
+        reset(); ctx.errors = 0;
+        assert(mt_run(&ctx, regions, 2, 3, test) == 0);
+        for (i = 0; i < 8193; ++i)
+            assert(buffer.data[i] == (UINT32_C(1) << ((((uint32_t)(uintptr_t)&buffer.data[i] >> 2) + test) & 31u)));
         guards();
     }
     /* Counter saturation, rather than wrapping to a false clean result. */

@@ -1,0 +1,22 @@
+{
+  "bytes": 65536,
+  "clock_mhz": 16,
+  "centiseconds": [
+    130,
+    259,
+    259,
+    4145,
+    386,
+    202,
+    146
+  ],
+  "modes": [
+    "full"
+  ],
+  "seed": "68c0ffee",
+  "progress_callbacks": false,
+  "elf_sha256": "ac90ec73cbec2ef85c6cd01bb348ff2cf2692124683bce4e5df03d6f6dce8018",
+  "image_sha256": "e93ca289e1104ecc68639dcf85f0416151f27469928a75944d931679047a4a8e",
+  "xeij_sha256": "90639578d90e8de2639f01657d5cb48adcff58e142193662cbae6a313af27221",
+  "engine_commit": "ac7f1303b94fbbbca49c4530bc87b02cc5670648"
+}

@@ -7,6 +7,7 @@
 #define MT_TEST_COUNT 7
 #define MT_ALL_TESTS ((1u << MT_TEST_COUNT) - 1u)
 #define MT_MAX_REGIONS 64
+#define MT_WALK_FULL 1u
 
 typedef struct {
     volatile uint32_t *base;
@@ -41,5 +42,10 @@ extern const char *const mt_test_names[MT_TEST_COUNT];
  * Returns 0 on completion, 1 on cancellation, -1 for invalid input. */
 int mt_run(mt_context *ctx, const mt_region *regions, size_t count,
            unsigned test, uint32_t seed);
+
+/* MT_WALK_FULL selects the original 128-sweep walking test. Default walking
+ * distributes bits by address; each of 32 consecutive seeds covers a new bit. */
+int mt_run_ex(mt_context *ctx, const mt_region *regions, size_t count,
+              unsigned test, uint32_t seed, unsigned flags);
 
 #endif

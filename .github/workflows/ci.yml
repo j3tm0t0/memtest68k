@@ -23,6 +23,15 @@ jobs:
           echo "$RUNNER_TEMP/m68k-xelf/bin" >> "$GITHUB_PATH"
       - name: Build all images and run sanitizer and image tests
         run: make -j2 check
+      - name: Verify actual 68000 kernels against portable C in run68x
+        shell: bash
+        run: |
+          curl -fL --retry 3 https://codeload.github.com/kg68k/run68x/tar.gz/fc28826dd795b1f0a3241f0b03fe2353e12e7233 -o "$RUNNER_TEMP/run68x.tar.gz"
+          echo "34eeaf20ebcb2434c43412b38ae140784fd36cdaba2427a19332eb7480266531  $RUNNER_TEMP/run68x.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/run68x.tar.gz" -C "$RUNNER_TEMP"
+          cmake -S "$RUNNER_TEMP/run68x-fc28826dd795b1f0a3241f0b03fe2353e12e7233" -B "$RUNNER_TEMP/run68x-build" -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$RUNNER_TEMP/run68x-build" -j2
+          make -j2 test-native RUN68="$RUNNER_TEMP/run68x-build/run68"
       - uses: actions/upload-artifact@v4
         with:
           name: memtest68-build
@@ -49,6 +58,8 @@ jobs:
           - {medium: hds, cpu: '68030', fault: false}
           - {medium: fd, cpu: '68000', fault: true}
           - {medium: hds, cpu: '68030', fault: true}
+          - {medium: hds, cpu: '68000', fault: false, memory: '12'}
+          - {medium: hds, cpu: '68000', fault: false, full: true}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v4
@@ -73,16 +84,20 @@ jobs:
           MEDIUM: ${{ matrix.medium }}
           CPU: ${{ matrix.cpu }}
           FAULT: ${{ matrix.fault }}
+          MEMORY: ${{ matrix.memory }}
+          FULL: ${{ matrix.full }}
         run: |
           extra=()
           if [ "$FAULT" = true ]; then extra+=(--fault); fi
+          if [ -n "$MEMORY" ]; then extra+=(--memory "$MEMORY"); fi
+          if [ "$FULL" = true ]; then extra+=(--full-walking); fi
           xvfb-run -a -s '-screen 0 1280x1024x24' python3 tools/test_xeij.py \
             --xeij "$RUNNER_TEMP/xeij/XEiJ.jar" --medium "$MEDIUM" --cpu "$CPU" "${extra[@]}"
       - name: Save emulator evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xeij-${{ matrix.medium }}-${{ matrix.cpu }}-fault-${{ matrix.fault }}
+          name: xeij-${{ matrix.medium }}-${{ matrix.cpu }}-fault-${{ matrix.fault }}-ram-${{ matrix.memory }}-full-${{ matrix.full }}
           if-no-files-found: warn
           path: |
             build/xeij/**/result.json

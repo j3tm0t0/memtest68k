@@ -93,3 +93,25 @@ SCSI HDS では ROM IOCS `_IPLERR` を使う共通再起動経路が起動エラ
 ![v0.3 HDS / 68030、先頭 1 KiB 内の誤りを検出](screenshots/hds-68030-fault-v03.png)
 
 v0.3 の検査範囲拡張は実機未確認です。実機報告は冒頭の v0.2 の記録を参照してください。
+
+
+## v0.4：68000 アセンブリ化・分散 Walking
+
+2026-11-26、`make check` の ASan / UBSan と画像生成テスト、実 68000 バイナリによる共通エンジンテストを実施しました。ASM とポータブル C 参照実装の照合は、複数領域・チャンク境界・異なる seed・故障注入・中断・エラー数飽和を含む 144 ケースで一致しています。両 Walking 方式を含みます。
+
+| 環境・試験 | 結果 |
+| --- | --- |
+| run68x / Human68k X / 16 KiB / 全 7 項目 | 分散 Walking、1 周、エラー 0、終了コード 0 |
+| run68x / Human68k X / 16 KiB / `--tests 4 --full-walking` | 従来 Walking、1 周、エラー 0、終了コード 0 |
+| headless XEiJ / HDS / XVI / 68000 / 12 MiB | 分散 Walking を含む全 8 項目、1 周、12287 KiB、エラー 0 |
+| headless XEiJ / HDS / XVI / 68000 / 1 MiB | 設定 `w` で次の Pass を従来 Walking に変更。1 周目 4 走査、2 周目 128 走査、2 周完了、エラー 0 |
+| headless XEiJ / FD / 68000 / 1 MiB / 故障注入 | `$1000` の 1 ビット誤りを 1 件検出、全 8 項目を完了 |
+| headless XEiJ / HDS / X68030 / 4 MiB / 故障注入 | `$100` の 1 ビット誤りを 1 件検出、全 8 項目を完了 |
+
+headless 検証は Linux aarch64 / Temurin 26 / Xvfb / XEiJ 0.26.10.08、検証用 1000 MHz 設定です。全 4 ケースで低位 RAM の復元照合・VBR の復元は正常でした。[結果 JSON](results/xeij-v04/) を参照してください。CI には元の 6 ケースに加え、12 MiB と従来 Walking への切替を追加しています。
+
+速度測定は別途、XVI / 16 MHz / 64 KiB で行っています。[測定条件と結果](performance.md) を参照してください。v0.4 の実機での速度と動作は未確認です。
+
+![v0.4 HDS / 68000 / 12 MiB、分散 Walking で完了](screenshots/hds-68000-12M-v04.png)
+
+![v0.4 設定から従来 Walking に切り替え、2 周を完了](screenshots/hds-68000-full-walking-v04.png)

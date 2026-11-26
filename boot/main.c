@@ -30,7 +30,7 @@ extern const unsigned char low_probe_image_start[], low_probe_image_end[];
 static struct {
     uint32_t ram, passes, limit, start, last_draw;
     unsigned mask, active, index, count, cpu;
-    int frozen, quit;
+    int frozen, quit, full_walking, active_full_walking;
     const char *cache;
     mt_context ctx;
     mt_progress current;
@@ -47,11 +47,12 @@ volatile struct {
     uint32_t magic, version, cpu, ram, low_start, low_bytes, tested_bytes;
     uint32_t passes, errors, low_runs, low_errors, probe_status;
     uint32_t old_vbr, active_vbr, restored_vbr, restore_errors;
-    uint32_t phase, completed_mask, first_address;
+    uint32_t phase, completed_mask, first_address, walking_full, walking_stages;
 } boot_report;
 
 static const char *test_name(unsigned test)
 {
+    if (test == 3 && a.active_full_walking) return "Walking ones / zeros, full 32 bit";
     return test == LOW_TEST ? "Low RAM, VRAM relocated" : mt_test_names[test];
 }
 
@@ -173,7 +174,7 @@ static void screen(void)
     unsigned i;
     char text[112];
     for (i = 0; i < 32; ++i) field(0, i, 95, 3, "");
-    field(0, 0, 35, 9, "        Memtest68 " BOOT_MEDIUM " v0.3");
+    field(0, 0, 35, 9, "        Memtest68 " BOOT_MEDIUM " v0.4");
     boot_format(text, sizeof(text), "Motorola 680%02u / X680x0", a.cpu*10u);
     field(0, 1, 35, 3, text);
     boot_format(text, sizeof(text), "Main RAM : %7uK (SRAM)", (unsigned)a.ram/1024u);
@@ -215,11 +216,15 @@ static void configure(void)
         else boot_format(text, sizeof(text), "  (l) Pass limit: %s", "unlimited");
         field(0, 25, 95, 3, text);
         field(0, 26, 95, 3, "  1-8 toggle   a select all   l cycle pass limit (1/2/5/unlimited)");
+        field(0, 26, 95, 3, a.full_walking ?
+              "  (w) Walking: full 32-bit, 128 sweeps (next pass)" :
+              "  (w) Walking: distributed, 4 sweeps (next pass)");
         field(0, 27, 95, 3, "  ENTER resume (at least one test required)   ESC " BOOT_EXIT_LOWER);
         k = _iocs_b_keyinp() & 255;
         if (k >= '1' && k <= '8') a.mask ^= 1u << (k-'1');
         if (k == 'a' || k == 'A') a.mask = ALL_TESTS;
         if (k == 'l' || k == 'L') a.limit = a.limit == 0 ? 1 : a.limit == 1 ? 2 : a.limit == 2 ? 5 : 0;
+        if (k == 'w' || k == 'W') a.full_walking = !a.full_walking;
         if (k == 27) { a.quit = 1; break; }
     } while (k != 13 || !a.mask);
     a.frozen = 0;
@@ -232,6 +237,7 @@ static int progress(void *user, const mt_progress *p)
     uint32_t now;
     (void)user;
     a.current = *p;
+    if (p->test == 3) boot_report.walking_stages = p->stages;
     k = key();
     if (k == 27) a.quit = 1;
     if (k == 'c' || k == 'C') configure();
@@ -386,6 +392,8 @@ void boot_main(void)
     boot_report.magic = UINT32_C(0x4d543638);
     for (;;) {
         a.active = a.mask;
+        a.active_full_walking = a.full_walking;
+        boot_report.walking_full = (unsigned)a.active_full_walking;
         a.count = count_bits(a.active);
         a.index = 0;
         boot_report.completed_mask = 0;
@@ -396,7 +404,8 @@ void boot_main(void)
         }
         for (i = 0; i < MT_TEST_COUNT && !a.quit; ++i) {
             if (!(a.active & (1u << i))) continue;
-            if (mt_run(&a.ctx, &region, 1, i, UINT32_C(0x68c0ffee) ^ a.passes)) a.quit = 1;
+            if (mt_run_ex(&a.ctx, &region, 1, i, UINT32_C(0x68c0ffee) + a.passes,
+                          a.active_full_walking ? MT_WALK_FULL : 0)) a.quit = 1;
             if (!a.quit) { ++a.index; boot_report.completed_mask |= 1u << i; }
         }
         if (a.quit) { reboot(); continue; }
